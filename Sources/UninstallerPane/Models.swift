@@ -162,7 +162,7 @@ public final class UninstallerStore {
         phase = .working
         let trashing = trashInsteadOfPermanent
         Task.detached(priority: .userInitiated) {
-            let report = Trasher.execute(
+            let report = await Trasher.execute(
                 plan: plan, trash: trashing)
             await MainActor.run {
                 self.phase = .done(report)

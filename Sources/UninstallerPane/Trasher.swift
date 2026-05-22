@@ -1,39 +1,60 @@
 import Foundation
+import AppKit
 
-/// Executes an `UninstallPlan` — sends every user-trashable item to
-/// the macOS Trash (or, when `trash` is false, deletes outright).
-/// Admin-only items are skipped and surfaced in the report so the
-/// user knows what's left over and can decide if it matters.
+/// Executes an `UninstallPlan`. The default path is
+/// `NSWorkspace.recycle`, which routes through Finder — so removing
+/// `/Applications/<App>.app` triggers the standard App Management
+/// TCC prompt (macOS 13+) instead of failing silently like
+/// `FileManager.trashItem` does when the caller isn't trusted yet.
+/// "Permanent delete" stays on `FileManager.removeItem`; that path
+/// is for items the user already accepts they're losing.
 enum Trasher {
 
     nonisolated static func execute(
         plan: UninstallPlan, trash: Bool
-    ) -> UninstallReport {
-        let fm = FileManager.default
+    ) async -> UninstallReport {
+        let trashable = plan.items.filter { !$0.requiresAdmin }
+        let skippedAdmin = plan.items.count - trashable.count
         var trashedCount = 0
         var trashedBytes: Int64 = 0
-        var skippedAdmin = 0
         var failures: [UninstallReport.Failure] = []
 
-        for item in plan.items {
-            if item.requiresAdmin {
-                skippedAdmin += 1
-                continue
-            }
-            do {
-                if trash {
-                    var resulting: NSURL?
-                    try fm.trashItem(at: item.path,
-                                     resultingItemURL: &resulting)
-                } else {
-                    try fm.removeItem(at: item.path)
+        if trash {
+            // Single batched recycle so Finder shows ONE auth prompt
+            // (instead of N) for things like /Applications/<App>.app,
+            // and the user sees every item land in the Trash together.
+            let urls = trashable.map(\.path)
+            let outcome: ([URL: URL], Error?) =
+                await withCheckedContinuation { cont in
+                    NSWorkspace.shared.recycle(urls) { recycled, err in
+                        cont.resume(returning: (recycled, err))
+                    }
                 }
-                trashedCount += 1
-                trashedBytes += item.size
-            } catch {
-                failures.append(.init(
-                    path: item.path,
-                    error: error.localizedDescription))
+            let (recycled, batchError) = outcome
+            for item in trashable {
+                if recycled[item.path] != nil {
+                    trashedCount += 1
+                    trashedBytes += item.size
+                } else {
+                    let msg = batchError?.localizedDescription
+                        ?? "Couldn't be moved to Trash — likely "
+                         + "needs your permission to modify this app."
+                    failures.append(.init(
+                        path: item.path, error: msg))
+                }
+            }
+        } else {
+            let fm = FileManager.default
+            for item in trashable {
+                do {
+                    try fm.removeItem(at: item.path)
+                    trashedCount += 1
+                    trashedBytes += item.size
+                } catch {
+                    failures.append(.init(
+                        path: item.path,
+                        error: error.localizedDescription))
+                }
             }
         }
 

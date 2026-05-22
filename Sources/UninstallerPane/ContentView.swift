@@ -263,32 +263,30 @@ struct ContentView: View {
 
     private func reportView(_ r: UninstallReport) -> some View {
         VStack(spacing: 12) {
-            Spacer()
             Image(systemName: r.ok
                   ? "checkmark.circle.fill"
                   : "exclamationmark.triangle.fill")
                 .font(.system(size: 36))
                 .foregroundStyle(r.ok ? Color.green : .orange)
+                .padding(.top, 18)
             Text(r.ok ? "Uninstalled \(r.appName)"
                      : "Uninstalled with warnings")
                 .font(.system(size: 14, weight: .semibold))
             Text("\(r.trashedCount) items · "
                  + byteString(r.trashedBytes)
-                 + " reclaimed")
+                 + " moved to Trash")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             if r.skippedAdmin > 0 {
-                Text("\(r.skippedAdmin) system-owned items skipped "
-                     + "(admin required).")
+                Text("\(r.skippedAdmin) system-owned item(s) skipped "
+                     + "— admin password required.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             }
             if !r.failures.isEmpty {
-                Text("\(r.failures.count) item(s) couldn't be removed.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+                failuresSection(r.failures)
             }
             Spacer()
             Button("Done") { store.dismissReport() }
@@ -297,6 +295,67 @@ struct ContentView: View {
                 .tint(Color.uninstallerAccent)
                 .padding(.bottom, 12)
         }
+    }
+
+    /// Itemised failure list with a one-line permission hint when the
+    /// failure looks like a TCC App-Management denial — and a button
+    /// that jumps straight to the right System Settings pane so the
+    /// user can grant it without going hunting.
+    private func failuresSection(
+        _ failures: [UninstallReport.Failure]
+    ) -> some View {
+        let looksLikePermission = failures.contains {
+            $0.error.localizedCaseInsensitiveContains("permission")
+            || $0.error.localizedCaseInsensitiveContains("not permitted")
+            || $0.error.localizedCaseInsensitiveContains("needs your")
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("\(failures.count) item(s) couldn't be removed")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            if looksLikePermission {
+                Text("macOS needs your permission to remove other "
+                     + "apps. Grant it under Privacy & Security → "
+                     + "App Management, then try again.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                Button {
+                    if let url = URL(string:
+                        "x-apple.systempreferences:com.apple."
+                        + "preference.security?Privacy_AppManagement") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Label("Open System Settings",
+                          systemImage: "arrow.up.right.square")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(failures, id: \.path) { f in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(f.path.lastPathComponent)
+                                .font(.system(size: 10, weight: .medium))
+                                .lineLimit(1)
+                            Text(f.path.path)
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 100)
+        }
+        .padding(.horizontal, 18)
     }
 
     // MARK: Footer
