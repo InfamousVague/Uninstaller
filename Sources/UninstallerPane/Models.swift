@@ -179,4 +179,15 @@ public final class UninstallerStore {
     public func dismissReport() {
         if case .done = phase { phase = .idle }
     }
+
+    /// Walk back from the plan view (or the post-uninstall report)
+    /// to the app picker. Just calling `dismissReport` wasn't enough
+    /// — `plan` and `selectedID` were still set, so the UI's
+    /// "if let plan = s.plan { planView }" branch kept firing.
+    public func clearSelection() {
+        selectedID = nil
+        plan = nil
+        if case .done = phase { phase = .idle }
+        if case .scanningResidue = phase { phase = .idle }
+    }
 }

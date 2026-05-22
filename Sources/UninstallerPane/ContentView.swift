@@ -44,12 +44,18 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if store.plan != nil {
-                Button("Back") { store.dismissReport()
-                                 // explicit back: clear selection
-                                 store.rescanApps() }
-                    .buttonStyle(.borderless)
+            if store.plan != nil || store.selectedID != nil {
+                Button {
+                    store.clearSelection()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Back")
+                    }
                     .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
             }
         }
         .padding(.horizontal, 12)
