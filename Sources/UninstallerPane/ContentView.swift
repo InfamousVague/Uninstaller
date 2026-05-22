@@ -314,32 +314,58 @@ struct ContentView: View {
         }
     }
 
-    /// Itemised failure list with a one-line permission hint when the
-    /// failure looks like a TCC App-Management denial — and a button
-    /// that jumps straight to the right System Settings pane so the
-    /// user can grant it without going hunting.
+    /// Itemised failure list — each one shows the path + the actual
+    /// error message so the user can see WHY something didn't trash.
+    /// When the error matches Finder-permission shape we surface a
+    /// deep-link to Privacy & Security → Automation (the right pane
+    /// for "MyApp would like to control Finder"); when it matches
+    /// App-Management shape we link to that pane instead.
     private func failuresSection(
         _ failures: [UninstallReport.Failure]
     ) -> some View {
-        let looksLikePermission = failures.contains {
+        let looksLikeFinderPerm = failures.contains {
+            $0.error.localizedCaseInsensitiveContains("finder")
+            || $0.error.localizedCaseInsensitiveContains("automation")
+            || $0.error.localizedCaseInsensitiveContains("still on disk")
+        }
+        let looksLikeAppMgmt = !looksLikeFinderPerm && failures.contains {
             $0.error.localizedCaseInsensitiveContains("permission")
             || $0.error.localizedCaseInsensitiveContains("not permitted")
-            || $0.error.localizedCaseInsensitiveContains("needs your")
         }
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                 Text("\(failures.count) item(s) couldn't be removed")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
             }
-            if looksLikePermission {
+            if looksLikeFinderPerm {
+                Text("Finder didn't actually move the app to Trash. "
+                     + "Open Automation in Privacy & Security, find "
+                     + "this app, and make sure 'Finder' is ticked.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    if let url = URL(string:
+                        "x-apple.systempreferences:com.apple."
+                        + "preference.security?Privacy_Automation") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Label("Open Automation settings",
+                          systemImage: "arrow.up.right.square")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else if looksLikeAppMgmt {
                 Text("macOS needs your permission to remove other "
                      + "apps. Grant it under Privacy & Security → "
                      + "App Management, then try again.")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button {
                     if let url = URL(string:
                         "x-apple.systempreferences:com.apple."
@@ -347,20 +373,26 @@ struct ContentView: View {
                         NSWorkspace.shared.open(url)
                     }
                 } label: {
-                    Label("Open System Settings",
+                    Label("Open App Management settings",
                           systemImage: "arrow.up.right.square")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
+            // Per-failure details: path + actual error message.
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(failures, id: \.path) { f in
-                        VStack(alignment: .leading, spacing: 0) {
+                        VStack(alignment: .leading, spacing: 1) {
                             Text(f.path.lastPathComponent)
-                                .font(.system(size: 10, weight: .medium))
+                                .font(.system(size: 11, weight: .medium))
                                 .lineLimit(1)
+                            Text(f.error)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false,
+                                           vertical: true)
                             Text(f.path.path)
                                 .font(.system(size: 9))
                                 .foregroundStyle(.tertiary)
@@ -370,7 +402,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(maxHeight: 100)
+            .frame(maxHeight: 140)
         }
         .padding(.horizontal, 18)
     }
