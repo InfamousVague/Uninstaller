@@ -138,11 +138,25 @@ enum ResidueScanner {
         return v
     }
 
-    /// True if the path is outside the user's home — anything under
-    /// /Library or /System needs admin to trash, so we'd just fail.
+    /// True if the path is *actually* admin-only — root-owned things
+    /// under /Library or /private/var that need sudo to touch.
+    ///
+    /// `/Applications/<App>.app` is NOT admin-only even though it's
+    /// outside the user's home: the bundle is user-owned, and
+    /// `NSWorkspace.recycle` handles it via the standard App
+    /// Management TCC prompt (which is consent, not privilege
+    /// escalation). Earlier versions wrongly flagged it, which
+    /// silently dropped the bundle from the trashable list and left
+    /// the user thinking "I clicked Uninstall but the app's still
+    /// in /Applications".
     private nonisolated static func needsAdmin(_ url: URL) -> Bool {
+        let p = url.path
+        if p.hasPrefix("/Applications/") { return false }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return !url.path.hasPrefix(home)
+        if p.hasPrefix(home) { return false }
+        // Everything else — /Library/LaunchAgents, /Library/Launch-
+        // Daemons, /private/var/db/receipts — really does need sudo.
+        return true
     }
 
     /// Stat the path; return nil if it doesn't exist. Sums recursive
