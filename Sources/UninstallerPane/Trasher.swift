@@ -1,13 +1,23 @@
 import Foundation
 import AppKit
 
-/// Executes an `UninstallPlan`. The default path is
-/// `NSWorkspace.recycle`, which routes through Finder — so removing
-/// `/Applications/<App>.app` triggers the standard App Management
-/// TCC prompt (macOS 13+) instead of failing silently like
-/// `FileManager.trashItem` does when the caller isn't trusted yet.
-/// "Permanent delete" stays on `FileManager.removeItem`; that path
-/// is for items the user already accepts they're losing.
+/// Executes an `UninstallPlan`. Two paths because macOS gates them
+/// behind different TCC services:
+///
+///   - Residue under `~/Library/...` — user-owned, no TCC: standard
+///     `NSWorkspace.recycle` handles them cleanly.
+///   - The bundle at `/Applications/<App>.app` — gated by App
+///     Management (`kTCCServiceSystemPolicyAppBundles`). In practice
+///     `NSWorkspace.recycle` here ends up in a "silently decided"
+///     state on machines where any earlier attempt was implicitly
+///     denied (no prompt) and never recovers. So we instead drive
+///     Finder via an Apple Event ("tell application Finder to
+///     delete …"), which uses `kTCCServiceAppleEvents` — a *different*
+///     service that prompts fresh on first use. Finder itself has
+///     the right permissions to do the move.
+///
+///   - "Permanent delete" toggle still uses `FileManager.removeItem`;
+///     that path is for items the user already accepts they're losing.
 enum Trasher {
 
     nonisolated static func execute(
@@ -19,28 +29,52 @@ enum Trasher {
         var trashedBytes: Int64 = 0
         var failures: [UninstallReport.Failure] = []
 
+        // Split the trashable set: the .app bundle goes via Finder
+        // (AppleEvents TCC), everything else via recycle (no TCC).
+        let bundleItems = trashable.filter {
+            $0.path.path.hasPrefix("/Applications/")
+        }
+        let residueItems = trashable.filter {
+            !$0.path.path.hasPrefix("/Applications/")
+        }
+
         if trash {
-            // Single batched recycle so Finder shows ONE auth prompt
-            // (instead of N) for things like /Applications/<App>.app,
-            // and the user sees every item land in the Trash together.
-            let urls = trashable.map(\.path)
-            let outcome: ([URL: URL], Error?) =
-                await withCheckedContinuation { cont in
-                    NSWorkspace.shared.recycle(urls) { recycled, err in
-                        cont.resume(returning: (recycled, err))
+            // 1) Residue first via the standard recycle path. These
+            //    are all user-owned so no TCC prompt.
+            if !residueItems.isEmpty {
+                let urls = residueItems.map(\.path)
+                let outcome: ([URL: URL], Error?) =
+                    await withCheckedContinuation { cont in
+                        NSWorkspace.shared.recycle(urls) { recycled, err in
+                            cont.resume(returning: (recycled, err))
+                        }
+                    }
+                let (recycled, batchError) = outcome
+                for item in residueItems {
+                    if recycled[item.path] != nil {
+                        trashedCount += 1
+                        trashedBytes += item.size
+                    } else {
+                        failures.append(.init(
+                            path: item.path,
+                            error: batchError?.localizedDescription
+                                ?? "Couldn't be moved to Trash."))
                     }
                 }
-            let (recycled, batchError) = outcome
-            for item in trashable {
-                if recycled[item.path] != nil {
+            }
+
+            // 2) /Applications/<App>.app via Finder. One AppleScript
+            //    per bundle so each one's error surfaces cleanly.
+            for item in bundleItems {
+                let res = await deleteViaFinder(item.path)
+                switch res {
+                case .success:
                     trashedCount += 1
                     trashedBytes += item.size
-                } else {
-                    let msg = batchError?.localizedDescription
-                        ?? "Couldn't be moved to Trash — likely "
-                         + "needs your permission to modify this app."
+                case .failure(let error):
                     failures.append(.init(
-                        path: item.path, error: msg))
+                        path: item.path,
+                        error: error.localizedDescription))
                 }
             }
         } else {
@@ -64,5 +98,50 @@ enum Trasher {
             trashedBytes: trashedBytes,
             skippedAdmin: skippedAdmin,
             failures: failures)
+    }
+
+    /// `tell application "Finder" to delete (POSIX file "/path" as alias)`.
+    /// The Apple Event is what triggers the "Uninstaller would like
+    /// to control Finder" prompt the first time — and Finder itself
+    /// has the permissions to actually move the bundle to Trash.
+    nonisolated private static func deleteViaFinder(_ url: URL)
+        async -> Result<Void, Error>
+    {
+        await withCheckedContinuation { cont in
+            // NSAppleScript must run on the main thread.
+            DispatchQueue.main.async {
+                let escaped = url.path
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                let source = """
+                tell application "Finder"
+                    delete (POSIX file "\(escaped)" as alias)
+                end tell
+                """
+                guard let script = NSAppleScript(source: source) else {
+                    cont.resume(returning: .failure(NSError(
+                        domain: "Uninstaller.Trasher", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "Couldn't construct Finder AppleScript."])))
+                    return
+                }
+                var error: NSDictionary?
+                _ = script.executeAndReturnError(&error)
+                if let error = error {
+                    let code = (error["NSAppleScriptErrorNumber"]
+                                as? Int) ?? -1
+                    let msg = (error["NSAppleScriptErrorBriefMessage"]
+                               as? String)
+                        ?? (error["NSAppleScriptErrorMessage"]
+                            as? String)
+                        ?? "Finder couldn't move the app to Trash."
+                    cont.resume(returning: .failure(NSError(
+                        domain: "Uninstaller.Trasher", code: code,
+                        userInfo: [NSLocalizedDescriptionKey: msg])))
+                } else {
+                    cont.resume(returning: .success(()))
+                }
+            }
+        }
     }
 }

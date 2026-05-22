@@ -62,6 +62,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Uninstaller</string>
+  <!-- Used so Finder can move /Applications/<App>.app to Trash on
+       our behalf. The first uninstall triggers a one-time
+       "Uninstaller would like to control Finder" prompt; clicking
+       Allow lets every subsequent uninstall run without further
+       interruption. This routes around App Management TCC, which
+       can silently deny on machines where any earlier
+       NSWorkspace.recycle attempt got implicitly refused and never
+       re-prompts. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Uninstaller asks Finder to move apps and their leftover files to the Trash on your behalf.</string>
 </dict>
 </plist>
 PLIST
