@@ -99,11 +99,19 @@ struct ContentView: View {
             store.select(app)
         } label: {
             HStack(spacing: 10) {
+                // System icons ship with a thin antialiased margin
+                // that reads as a white halo against the dark
+                // popover. Scale up ~14% before clipping so the halo
+                // sits outside the clip and the squircle reads
+                // cleanly — same trick used for the plan header.
                 Image(nsImage: app.icon)
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
                     .frame(width: 28, height: 28)
+                    .scaleEffect(1.14)
+                    .clipShape(RoundedRectangle(
+                        cornerRadius: 7, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(app.displayName)
                         .font(.system(size: 12, weight: .medium))
@@ -165,6 +173,9 @@ struct ContentView: View {
                 Image(nsImage: plan.app.icon)
                     .resizable().interpolation(.high).scaledToFit()
                     .frame(width: 36, height: 36)
+                    .scaleEffect(1.14)
+                    .clipShape(RoundedRectangle(
+                        cornerRadius: 9, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(plan.app.displayName)
                         .font(.system(size: 13, weight: .semibold))

@@ -13,10 +13,12 @@ public struct InstalledApp: Identifiable, Hashable, Sendable {
     public var id: String { bundleID }
 
     /// AppKit-loaded icon. Cheap to call; `NSWorkspace` does its own
-    /// caching, and we resize down for the list cell.
+    /// caching. Sized large enough (64pt) that the UI's scale-up +
+    /// clip pass — which crops the antialiased squircle margin — has
+    /// crisp source pixels to work with on retina.
     public var icon: NSImage {
         let img = NSWorkspace.shared.icon(forFile: bundleURL.path)
-        img.size = NSSize(width: 32, height: 32)
+        img.size = NSSize(width: 64, height: 64)
         return img
     }
 }
