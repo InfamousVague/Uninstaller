@@ -1,0 +1,6 @@
+.build/
+.swiftpm/
+Uninstaller.app
+Uninstaller-*.dmg
+*.xcodeproj
+.DS_Store
