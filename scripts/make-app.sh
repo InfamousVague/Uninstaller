@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 APP="$ROOT/Uninstaller.app"
 SRC_ICON="$ROOT/art/AppIcon-source.png"
-VERSION="0.2.3"
+VERSION="0.2.4"
 SIGN_IDENTITY="${SIGN_IDENTITY:-0948896DC970503ADEF5B5070E0BB3E9D9047757}"
 DMG="$ROOT/Uninstaller-$VERSION.dmg"
 
